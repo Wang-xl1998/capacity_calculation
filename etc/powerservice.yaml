@@ -1,0 +1,6 @@
+Name: power
+Host: 10.203.134.84
+Port: 8089
+Mysql:
+  DataSource: "root:123456@tcp(127.0.0.1:3306)/power_db?charset=utf8mb4&parseTime=True&loc=Local"
+
