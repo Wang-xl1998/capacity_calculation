@@ -1,0 +1,66 @@
+syntax = "v1"
+
+info (
+	title:   "文件上传与数据存储API"
+	desc:    "处理不同公司上传的Excel文件，并将数据时间和功率存储到MySQL中，提供查询接口"
+	author:  "wxl"
+	date:    "2024年8月26日"
+	version: "v1"
+)
+
+type UploadRequest {
+	file    string `form:"file"` // 文件内容作为Base64字符串上传
+	company string `form:"company"` // 公司名称
+}
+
+type UploadResponse {
+	message string
+}
+
+type QueryRequest {
+	startTime string `form:"startTime"` // 查询开始时间，格式：YYYY-MM-DD HH:MM:SS
+	endTime   string `form:"endTime"` // 查询结束时间，格式：YYYY-MM-DD HH:MM:SS
+	company   string `form:"company"` // 公司名称
+}
+
+type PowerData {
+	time  string // 数据时间
+	power float64 // 功率
+}
+
+type QueryResponse {
+	data []PowerData
+}
+
+type CapacityConfigRequest {
+	company               string   `json:"company"`
+	powerFactor           float64  `json:"powerFactor"` // 功率因数
+	transformerCapacity   float64  `json:"transformerCapacity"` // 变压器容量 (kW)
+	meterMultiplier       float64  `json:"meterMultiplier"` // 电表倍率
+	dischargeCapacity     float64  `json:"dischargeCapacity"` // 储能柜实际放电容量 (kWh)
+	chargeCapacity        float64  `json:"chargeCapacity"` // 储能柜实际充电容量 (kWh)
+	firstChargePeriod     []string `json:"firstChargePeriod"` // 第一次充电时段，例如 [9, 11] 表示9-11点
+	firstDischargePeriod  []string `json:"firstDischargePeriod"` // 第一次放电时段
+	secondChargePeriod    []string `json:"secondChargePeriod"` // 第二次充电时段
+	secondDischargePeriod []string `json:"secondDischargePeriod"` // 第二次放电时段
+}
+
+type CapacityConfigResponse {
+	minCabinetCount       int // 储能柜最小台数
+	firstChargeAmount     float64 // 第一次充电量 (kWh)
+	firstDischargeAmount  float64 // 第一次放电量 (kWh)
+	secondChargeAmount    float64 // 第二次充电量 (kWh)
+	secondDischargeAmount float64 // 第二次放电量 (kWh)
+}
+
+service PowerService {
+	@handler uploadFile
+	post /upload/ (UploadRequest) returns (UploadResponse)
+
+	@handler queryData
+	get /query/ (QueryRequest) returns (QueryResponse)
+
+	@handler calculateCapacity
+	post /capacity/ (CapacityConfigRequest) returns (CapacityConfigResponse)
+}
+
