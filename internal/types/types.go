@@ -12,6 +12,7 @@ type CapacityConfigRequest struct {
 	FirstDischargePeriod  []string `json:"firstDischargePeriod"`  // 第一次放电时段
 	SecondChargePeriod    []string `json:"secondChargePeriod"`    // 第二次充电时段
 	SecondDischargePeriod []string `json:"secondDischargePeriod"` // 第二次放电时段
+	CalculationMethod     string   `json:"calculationMethod"`     //计算方法：平均数、中位数、众数、百分位数等
 }
 
 type CapacityConfigResponse struct {
