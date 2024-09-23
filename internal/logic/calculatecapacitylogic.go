@@ -36,30 +36,42 @@ func (l *CalculateCapacityLogic) CalculateCapacity(req *types.CapacityConfigRequ
 	// 第一次充电时段
 	firstChargePower, err := l.getPower(queryLogic, req.FirstChargePeriod[0], req.FirstChargePeriod[1], req.Company, req.CalculationMethod)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to query power data for first charge period: %v", err)
+		return nil, fmt.Errorf("failed to query power data for first charge period: %v", err)
 	}
-	l.Logger.Infof("First Charge Period (%s - %s): %f kW", req.FirstChargePeriod[0], req.FirstChargePeriod[1], firstChargePower)
+	firstChargeHours := l.getHours(req.FirstChargePeriod[0], req.FirstChargePeriod[1], firstChargePower)
 
 	// 第一次放电时段
 	firstDischargePower, err := l.getPower(queryLogic, req.FirstDischargePeriod[0], req.FirstDischargePeriod[1], req.Company, req.CalculationMethod)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to query power data for first discharge period: %v", err)
+		return nil, fmt.Errorf("failed to query power data for first discharge period: %v", err)
 	}
-	l.Logger.Infof("First Discharge Period (%s - %s): %f kW", req.FirstDischargePeriod[0], req.FirstDischargePeriod[1], firstDischargePower)
+	firstDischargeHours := l.getHours(req.FirstDischargePeriod[0], req.FirstDischargePeriod[1], firstDischargePower)
 
 	// 第二次充电时段
 	secondChargePower, err := l.getPower(queryLogic, req.SecondChargePeriod[0], req.SecondChargePeriod[1], req.Company, req.CalculationMethod)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to query power data for second charge period: %v", err)
+		return nil, fmt.Errorf("failed to query power data for second charge period: %v", err)
 	}
-	l.Logger.Infof("Second Charge Period (%s - %s): %f kW", req.SecondChargePeriod[0], req.SecondChargePeriod[1], secondChargePower)
+	secondChargeHours := l.getHours(req.SecondChargePeriod[0], req.SecondChargePeriod[1], secondChargePower)
 
 	// 第二次放电时段
 	secondDischargePower, err := l.getPower(queryLogic, req.SecondDischargePeriod[0], req.SecondDischargePeriod[1], req.Company, req.CalculationMethod)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to query power data for second discharge period: %v", err)
+		return nil, fmt.Errorf("failed to query power data for second discharge period: %v", err)
 	}
-	l.Logger.Infof("Second Discharge Period (%s - %s): %f kW", req.SecondDischargePeriod[0], req.SecondDischargePeriod[1], secondDischargePower)
+	secondDischargeHours := l.getHours(req.SecondDischargePeriod[0], req.SecondDischargePeriod[1], secondDischargePower)
+
+	// 如果任何一个时段的时长为0，说明数据无效，返回0的结果
+	if firstChargeHours == 0 || firstDischargeHours == 0 || secondChargeHours == 0 || secondDischargeHours == 0 {
+		l.Logger.Infof("One or more periods have no valid data, returning 0 for all values")
+		return &types.CapacityConfigResponse{
+			MinCabinetCount:       0,
+			FirstChargeAmount:     0,
+			FirstDischargeAmount:  0,
+			SecondChargeAmount:    0,
+			SecondDischargeAmount: 0,
+		}, nil
+	}
 
 	// 使用查询到的功率数据进行容量计算
 	meterMultiplier := req.MeterMultiplier
@@ -67,11 +79,11 @@ func (l *CalculateCapacityLogic) CalculateCapacity(req *types.CapacityConfigRequ
 	transformerCapacity := req.TransformerCapacity
 
 	// 计算每个时段的充电量和放电量
-	firstChargeAmount := (transformerCapacity*powerFactor - firstChargePower*meterMultiplier) * l.getHours(req.FirstChargePeriod[0], req.FirstChargePeriod[1])
-	firstDischargeAmount := firstDischargePower * meterMultiplier * l.getHours(req.FirstDischargePeriod[0], req.FirstDischargePeriod[1]) * powerFactor
+	firstChargeAmount := math.Round(transformerCapacity*powerFactor-firstChargePower*meterMultiplier) * firstChargeHours
+	firstDischargeAmount := math.Round(firstDischargePower * meterMultiplier * firstDischargeHours * powerFactor)
 
-	secondChargeAmount := (transformerCapacity*powerFactor - secondChargePower*meterMultiplier) * l.getHours(req.SecondChargePeriod[0], req.SecondChargePeriod[1])
-	secondDischargeAmount := secondDischargePower * meterMultiplier * l.getHours(req.SecondDischargePeriod[0], req.SecondDischargePeriod[1]) * powerFactor
+	secondChargeAmount := math.Round(transformerCapacity*powerFactor-secondChargePower*meterMultiplier) * secondChargeHours
+	secondDischargeAmount := math.Round(secondDischargePower * meterMultiplier * secondDischargeHours * powerFactor)
 
 	// 打印每个时段的充放电量
 	l.Logger.Infof("First Charge Amount: %f kWh", firstChargeAmount)
@@ -118,6 +130,11 @@ func (l *CalculateCapacityLogic) getPower(queryLogic *QueryDataLogic, startTime,
 		return 0, err
 	}
 
+	if len(queryResp.Data) == 0 {
+		l.Logger.Infof("No data points available for power calculation")
+		return 0, nil
+	}
+
 	// 根据请求的方法选择计算功率的方式
 	switch method {
 	case "average":
@@ -133,7 +150,8 @@ func (l *CalculateCapacityLogic) getPower(queryLogic *QueryDataLogic, startTime,
 	case "stddev_mean":
 		return l.calculateStdDevMean(queryResp), nil
 	default:
-		return l.calculateAveragePower(queryResp), nil
+		return 0, fmt.Errorf("unsupported calculation method: %s", method)
+		//return l.calculateAveragePower(queryResp), nil
 	}
 }
 
@@ -148,7 +166,7 @@ func (l *CalculateCapacityLogic) calculateAveragePower(queryResp *types.QueryRes
 		return 0
 	}
 	avgPower := totalPower / float64(len(queryResp.Data))
-	l.Logger.Infof("Calculated average power: %f", avgPower) // 打印平均功率
+	l.Logger.Infof("Calculated average power: %.2f", avgPower) // 打印平均功率
 	return avgPower
 }
 
@@ -254,7 +272,14 @@ func (l *CalculateCapacityLogic) calculateStdDevMean(queryResp *types.QueryRespo
 }
 
 // 计算两个时间点之间的时长（小时）
-func (l *CalculateCapacityLogic) getHours(startTimeStr, endTimeStr string) float64 {
+// 计算两个时间点之间的时长（小时），如果时间无效或数据不存在返回 0
+func (l *CalculateCapacityLogic) getHours(startTimeStr, endTimeStr string, power float64) float64 {
+	// 如果功率为 0，表示该时间段没有数据，返回 0
+	if power == 0 {
+		l.Logger.Infof("Power data is zero, indicating no data exists for the time period %s - %s", startTimeStr, endTimeStr)
+		return 0
+	}
+
 	loc, _ := time.LoadLocation("Asia/Shanghai")
 	startTime, err := time.ParseInLocation("2006-01-02 15:04:05", startTimeStr, loc)
 	if err != nil {
@@ -264,6 +289,11 @@ func (l *CalculateCapacityLogic) getHours(startTimeStr, endTimeStr string) float
 	endTime, err := time.ParseInLocation("2006-01-02 15:04:05", endTimeStr, loc)
 	if err != nil {
 		l.Logger.Errorf("Invalid end time: %s", endTimeStr)
+		return 0
+	}
+	// 如果结束时间早于开始时间，返回 0
+	if endTime.Before(startTime) {
+		l.Logger.Errorf("End time is before start time: %s < %s", endTimeStr, startTimeStr)
 		return 0
 	}
 	// 计算数据点数量
